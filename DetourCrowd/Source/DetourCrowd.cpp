@@ -1061,6 +1061,70 @@ void dtCrowd::checkPathValidity(dtCrowdAgent** agents, const int nagents, const 
 		}
 	}
 }
+
+/**
+ * Calculates the inward vector and the full angle between two segments.
+ * prev, curr, next: float[3] arrays (x, y, z)
+ * result_vector: float[3] to store the inward vector
+ * result_angle: float pointer to store the angle in radians
+ */
+static void get_inward_data(float* prev, float* curr, float* next, float* result_vector, float* result_angle)
+{
+	result_vector[0] = 0;
+	result_vector[1] = 0;
+	result_vector[2] = 0;
+
+	// 1. Get directions from points
+	float d1_x = curr[0] - prev[0];
+	float d1_y = curr[2] - prev[2];
+	float d2_x = next[0] - curr[0];
+	float d2_y = next[2] - curr[2];
+
+	// 2. Normalize segment directions
+	float m1 = sqrtf(d1_x * d1_x + d1_y * d1_y);
+	float m2 = sqrtf(d2_x * d2_x + d2_y * d2_y);
+
+	if (m1 < 1e-6f || m2 < 1e-6f)
+	{
+		*result_angle = 0;
+		return;
+	}
+
+	d1_x /= m1; d1_y /= m1;
+	d2_x /= m2; d2_y /= m2;
+
+	// 3. Calculate Angle using dot and cross products
+	float dot = d1_x * d2_x + d1_y * d2_y;
+	float cross = (d1_x * d2_y) - (d1_y * d2_x);
+
+	// atan2(y, x) gives the signed angle between segments
+	*result_angle = atan2f(cross, dot);
+
+	// 4. Find the Bisector (average direction)
+	float bis_x = d1_x + d2_x;
+	float bis_y = d1_y + d2_y;
+	float mb = sqrtf(bis_x * bis_x + bis_y * bis_y);
+
+	// If points are collinear (180 degrees), bisector is zero
+	if (mb < 1e-6f) {
+		result_vector[0] = -d1_y;
+		result_vector[2] = d1_x;
+		return;
+	}
+
+	bis_x /= mb;
+	bis_y /= mb;
+
+	// 5. Pick the inward perpendicular based on turn direction
+	if (cross > 0) {
+		result_vector[0] = -bis_y;
+		result_vector[2] = bis_x;
+	}
+	else {
+		result_vector[0] = bis_y;
+		result_vector[2] = -bis_x;
+	}
+}
 	
 void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 {
@@ -1127,6 +1191,32 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 		// Find corners for steering
 		ag->ncorners = ag->corridor.findCorners(ag->cornerVerts, ag->cornerFlags, ag->cornerPolys,
 												DT_CROWDAGENT_MAX_CORNERS, m_navquery, &m_filters[ag->params.queryFilterType]);
+		
+		if ((ag->params.updateFlags & DT_CROWD_WIDEN_CORNERS_NK) && ag->params.cornerVertsWidening > 0.f && ag->ncorners > 1)
+		{
+			float* p0 = ag->npos;
+			float* p1 = ag->cornerVerts;
+			float* p2 = ag->cornerVerts + 3;
+
+			float normal[3];
+			float wideningAmount;
+
+			static const float DT_HALF_PI = 3.14159265f * 0.5f;
+
+			for (int i = 0; i <= ag->ncorners - 1; ++i)
+			{
+				get_inward_data(p0, p1, p2, normal, &wideningAmount);		// wideningAmount in range -pi -> 0 -> pi
+				wideningAmount = dtMin(fabsf(wideningAmount), DT_HALF_PI);	//						  pi/2 -> 0 -> pi/2
+				wideningAmount = wideningAmount / DT_HALF_PI;				//						     1 -> 0 -> 1
+
+				dtVscale(normal, normal, wideningAmount * ag->params.cornerVertsWidening);
+				dtVsub(p1, p1, normal);
+
+				p0 = p1;
+				p1 = p2;
+				p2 = p2 + 3;
+			}
+		}
 		
 		// Check to see if the corner after the next corner is directly visible,
 		// and short cut to there.
@@ -1400,7 +1490,7 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 
 					const float inv_dist = 1.f / dist;
 
-					if (dist > 0.5f && ag->params.updateFlags & DT_CROWD_AGENT_STEP_ASIDE)
+					if (dist > 0.5f && ag->params.updateFlags & DT_CROWD_AGENT_STEP_ASIDE_NK)
 					{
 						neiDirection[0] = nei->vel[0];
 						neiDirection[2] = nei->vel[2];
