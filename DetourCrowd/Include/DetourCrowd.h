@@ -100,6 +100,9 @@ struct dtCrowdAgentParams
 	unsigned char agentGroupFlags;
 	unsigned char ignoreGroupFlags;
 
+	/// Defines the distance corner verts should be moved away from the corner
+	float cornerVertsWidening;
+
 	/// User defined data attached to the agent.
 	void* userData;
 };
@@ -193,7 +196,8 @@ enum UpdateFlags
 	DT_CROWD_SEPARATION = 4,
 	DT_CROWD_OPTIMIZE_VIS = 8,			///< Use #dtPathCorridor::optimizePathVisibility() to optimize the agent path.
 	DT_CROWD_OPTIMIZE_TOPO = 16, 		///< Use dtPathCorridor::optimizePathTopology() to optimize the agent path.
-	DT_CROWD_AGENT_STEP_ASIDE = 32,
+	DT_CROWD_AGENT_STEP_ASIDE_NK = 32,
+	DT_CROWD_WIDEN_CORNERS_NK = 64,
 };
 
 struct dtCrowdAgentDebugInfo

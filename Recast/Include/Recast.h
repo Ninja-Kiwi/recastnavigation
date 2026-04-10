@@ -1170,8 +1170,9 @@ bool rcBuildCompactHeightfield(rcContext* context, int walkableHeight, int walka
 /// @param[in,out]	context				The build context to use during the operation.
 /// @param[in]		erosionRadius		The radius of erosion. [Limits: 0 < value < 255] [Units: vx]
 /// @param[in,out]	compactHeightfield	The populated compact heightfield to erode.
+/// @param[in]		areaId				The areaId the eroded spans should be set to. [default: RC_NULL_AREA]
 /// @returns True if the operation completed successfully.
-bool rcErodeWalkableArea(rcContext* context, int erosionRadius, rcCompactHeightfield& compactHeightfield);
+bool rcErodeWalkableArea(rcContext* context, int erosionRadius, rcCompactHeightfield& compactHeightfield, unsigned char area_id = RC_NULL_AREA);
 
 /// Applies a median filter to walkable area types (based on area id), removing noise.
 /// 
