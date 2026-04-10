@@ -72,7 +72,9 @@ static bool pointInPoly(int numVerts, const float* verts, const float* point)
 	return inPoly;
 }
 
-bool rcErodeWalkableArea(rcContext* context, const int erosionRadius, rcCompactHeightfield& compactHeightfield, unsigned char area_id /*= RC_NULL_AREA*/)
+bool rcErodeWalkableArea(rcContext* context, rcCompactHeightfield& compactHeightfield,
+						 int smallerErosionRadius, unsigned char smallerAreaId,
+						 int largerErosionRadius, unsigned char largerAreaId)
 {
 	rcAssert(context != NULL);
 
@@ -272,12 +274,20 @@ bool rcErodeWalkableArea(rcContext* context, const int erosionRadius, rcCompactH
 		}
 	}
 
-	const unsigned char minBoundaryDistance = (unsigned char)(erosionRadius * 2);
+	const unsigned char minBoundaryDistance1 = (unsigned char)(smallerErosionRadius * 2);
+	const unsigned char minBoundaryDistance2 = (unsigned char)(largerErosionRadius * 2);
 	for (int spanIndex = 0; spanIndex < compactHeightfield.spanCount; ++spanIndex)
 	{
-		if (distanceToBoundary[spanIndex] < minBoundaryDistance)
+		if (compactHeightfield.areas[spanIndex] == RC_NULL_AREA)
+			continue;
+
+		if (distanceToBoundary[spanIndex] < minBoundaryDistance1)
 		{
-			compactHeightfield.areas[spanIndex] = area_id;
+			compactHeightfield.areas[spanIndex] = smallerAreaId;
+		}
+		else if (distanceToBoundary[spanIndex] < minBoundaryDistance2)
+		{
+			compactHeightfield.areas[spanIndex] = largerAreaId;
 		}
 	}
 
