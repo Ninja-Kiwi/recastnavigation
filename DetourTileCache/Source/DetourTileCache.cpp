@@ -360,6 +360,21 @@ dtStatus dtTileCache::addObstacle(const float* pos, const float radius, const fl
 {
 	if (m_nreqs >= MAX_REQUESTS)
 		return DT_FAILURE | DT_BUFFER_TOO_SMALL;
+
+	// Find touched tiles.
+	float bmin[3], bmax[3];
+	bmin[0] = pos[0] - radius;
+	bmin[1] = pos[1];
+	bmin[2] = pos[2] - radius;
+	bmax[0] = pos[0] + radius;
+	bmax[1] = pos[1] + height;
+	bmax[2] = pos[2] + radius;
+
+	dtCompressedTileRef tileRef;
+	int ntouched = 0;
+	queryTiles(bmin, bmax, &tileRef, &ntouched, 1);
+	if (ntouched == 0)
+		return DT_FAILURE | DT_OBSTACLE_DOESNT_OVERLAP;
 	
 	dtTileCacheObstacle* ob = 0;
 	if (m_nextFreeObstacle)
@@ -396,7 +411,14 @@ dtStatus dtTileCache::addBoxObstacle(const float* bmin, const float* bmax, const
 {
 	if (m_nreqs >= MAX_REQUESTS)
 		return DT_FAILURE | DT_BUFFER_TOO_SMALL;
-	
+
+	// Find touched tiles.
+	dtCompressedTileRef tileRef;
+	int ntouched = 0;
+	queryTiles(bmin, bmax, &tileRef, &ntouched, 1);
+	if (ntouched == 0)
+		return DT_FAILURE | DT_OBSTACLE_DOESNT_OVERLAP;
+
 	dtTileCacheObstacle* ob = 0;
 	if (m_nextFreeObstacle)
 	{
@@ -432,6 +454,22 @@ dtStatus dtTileCache::addBoxObstacle(const float* center, const float* halfExten
 	if (m_nreqs >= MAX_REQUESTS)
 		return DT_FAILURE | DT_BUFFER_TOO_SMALL;
 
+	// Find touched tiles.
+	float bmin[3], bmax[3];
+	float maxr = 1.41f * dtMax(halfExtents[0], halfExtents[2]);
+	bmin[0] = center[0] - maxr;
+	bmax[0] = center[0] + maxr;
+	bmin[1] = center[1] - halfExtents[1];
+	bmax[1] = center[1] + halfExtents[1];
+	bmin[2] = center[2] - maxr;
+	bmax[2] = center[2] + maxr;
+
+	dtCompressedTileRef tileRef;
+	int ntouched = 0;
+	queryTiles(bmin, bmax, &tileRef, &ntouched, 1);
+	if (ntouched == 0)
+		return DT_FAILURE | DT_OBSTACLE_DOESNT_OVERLAP;
+
 	dtTileCacheObstacle* ob = 0;
 	if (m_nextFreeObstacle)
 	{
@@ -451,7 +489,7 @@ dtStatus dtTileCache::addBoxObstacle(const float* center, const float* halfExten
 	dtVcopy(ob->orientedBox.center, center);
 	dtVcopy(ob->orientedBox.halfExtents, halfExtents);
 
-	float coshalf= cosf(0.5f*yRadians);
+	float coshalf = cosf(0.5f*yRadians);
 	float sinhalf = sinf(-0.5f*yRadians);
 	ob->orientedBox.rotAux[0] = coshalf*sinhalf;
 	ob->orientedBox.rotAux[1] = coshalf*coshalf - 0.5f;
