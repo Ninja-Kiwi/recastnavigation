@@ -1309,12 +1309,20 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			else
 				calcStraightSteerDirection(ag, dvel);
 			
-			// Calculate speed scale, which tells the agent to slowdown at the end of the path.
-			const float slowDownRadius = ag->params.radius*2;	// TODO: make less hacky.
-			const float speedScale = getDistanceToGoal(ag, slowDownRadius) / slowDownRadius;
-				
-			ag->desiredSpeed = ag->params.maxSpeed;
-			dtVscale(dvel, dvel, ag->desiredSpeed * speedScale);
+			if (ag->params.updateFlags & DT_CROWD_AVOID_SLOW_AT_PATH_END_NK)
+			{
+				ag->desiredSpeed = ag->params.maxSpeed;
+				dtVscale(dvel, dvel, ag->desiredSpeed);
+			}
+			else
+			{
+				// Calculate speed scale, which tells the agent to slowdown at the end of the path.
+				const float slowDownRadius = ag->params.radius * 2;	// TODO: make less hacky.
+				const float speedScale = getDistanceToGoal(ag, slowDownRadius) / slowDownRadius;
+
+				ag->desiredSpeed = ag->params.maxSpeed;
+				dtVscale(dvel, dvel, ag->desiredSpeed * speedScale);
+			}
 		}
 
 		// Separation

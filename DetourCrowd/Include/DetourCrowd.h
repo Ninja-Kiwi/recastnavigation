@@ -198,6 +198,7 @@ enum UpdateFlags
 	DT_CROWD_OPTIMIZE_TOPO = 16, 		///< Use dtPathCorridor::optimizePathTopology() to optimize the agent path.
 	DT_CROWD_AGENT_STEP_ASIDE_NK = 32,
 	DT_CROWD_WIDEN_CORNERS_NK = 64,
+	DT_CROWD_AVOID_SLOW_AT_PATH_END_NK = 128,
 };
 
 struct dtCrowdAgentDebugInfo
