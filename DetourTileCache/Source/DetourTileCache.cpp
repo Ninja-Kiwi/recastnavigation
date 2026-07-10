@@ -637,7 +637,7 @@ dtStatus dtTileCache::update(const float /*dt*/, dtNavMesh* navmesh,
 			if (retainRequest)
 			{
 				// We need to copy the request to the beginning of the request list for processing once the pending updates have been handled.
-				memcpy(m_reqs + requestOverflowCount, m_reqs + i, sizeof(ObstacleRequest));
+				memmove(m_reqs + requestOverflowCount, m_reqs + i, sizeof(ObstacleRequest));
 				++requestOverflowCount;
 			}
 
