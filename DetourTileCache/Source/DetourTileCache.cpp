@@ -566,6 +566,8 @@ dtStatus dtTileCache::update(const float /*dt*/, dtNavMesh* navmesh,
 {
 	if (m_nupdate == 0)
 	{
+		unsigned int requestOverflowCount = 0;
+
 		// Process requests.
 		for (int i = 0; i < m_nreqs; ++i)
 		{
@@ -578,7 +580,11 @@ dtStatus dtTileCache::update(const float /*dt*/, dtNavMesh* navmesh,
 			unsigned int salt = decodeObstacleIdSalt(req->ref);
 			if (ob->salt != salt)
 				continue;
-			
+
+			const int remainingTileUpdateCount = MAX_UPDATE - m_nupdate;
+
+			bool retainRequest = true;
+
 			if (req->action == REQUEST_ADD)
 			{
 				// Find touched tiles.
@@ -587,38 +593,57 @@ dtStatus dtTileCache::update(const float /*dt*/, dtNavMesh* navmesh,
 
 				int ntouched = 0;
 				queryTiles(bmin, bmax, ob->touched, &ntouched, DT_MAX_TOUCHED_TILES);
-				ob->ntouched = (unsigned char)ntouched;
-				// Add tiles to update list.
-				ob->npending = 0;
-				for (int j = 0; j < ob->ntouched; ++j)
+
+				if (ntouched < remainingTileUpdateCount)
 				{
-					if (m_nupdate < MAX_UPDATE)
+					ob->ntouched = (unsigned char)ntouched;
+					// Add tiles to update list.
+					ob->npending = 0;
+					for (int j = 0; j < ob->ntouched; ++j)
 					{
-						if (!contains(m_update, m_nupdate, ob->touched[j]))
-							m_update[m_nupdate++] = ob->touched[j];
-						ob->pending[ob->npending++] = ob->touched[j];
+						if (m_nupdate < MAX_UPDATE)
+						{
+							if (!contains(m_update, m_nupdate, ob->touched[j]))
+								m_update[m_nupdate++] = ob->touched[j];
+							ob->pending[ob->npending++] = ob->touched[j];
+						}
 					}
+
+					retainRequest = false;
 				}
 			}
 			else if (req->action == REQUEST_REMOVE)
 			{
-				// Prepare to remove obstacle.
-				ob->state = DT_OBSTACLE_REMOVING;
-				// Add tiles to update list.
-				ob->npending = 0;
-				for (int j = 0; j < ob->ntouched; ++j)
+				if (ob->ntouched < remainingTileUpdateCount)
 				{
-					if (m_nupdate < MAX_UPDATE)
+					// Prepare to remove obstacle.
+					ob->state = DT_OBSTACLE_REMOVING;
+					// Add tiles to update list.
+					ob->npending = 0;
+					for (int j = 0; j < ob->ntouched; ++j)
 					{
-						if (!contains(m_update, m_nupdate, ob->touched[j]))
-							m_update[m_nupdate++] = ob->touched[j];
-						ob->pending[ob->npending++] = ob->touched[j];
+						if (m_nupdate < MAX_UPDATE)
+						{
+							if (!contains(m_update, m_nupdate, ob->touched[j]))
+								m_update[m_nupdate++] = ob->touched[j];
+							ob->pending[ob->npending++] = ob->touched[j];
+						}
 					}
+
+					retainRequest = false;
 				}
 			}
+
+			if (retainRequest)
+			{
+				// We need to copy the request to the beginning of the request list for processing once the pending updates have been handled.
+				memcpy(m_reqs + requestOverflowCount, m_reqs + i, sizeof(ObstacleRequest));
+				++requestOverflowCount;
+			}
+
 		}
 		
-		m_nreqs = 0;
+		m_nreqs = requestOverflowCount;
 	}
 	
 	dtStatus status = DT_SUCCESS;
