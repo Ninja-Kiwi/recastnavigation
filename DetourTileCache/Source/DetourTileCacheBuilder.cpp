@@ -22,6 +22,33 @@
 #include "DetourAssert.h"
 #include "DetourTileCacheBuilder.h"
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+
+static void (*s_tileCacheLogFunc)(const dtLogCategory, const char*, int) = 0;
+
+void dtTileCacheSetLogFunc(void (*func)(const dtLogCategory, const char*, int))
+{
+	s_tileCacheLogFunc = func;
+}
+
+void dtTileCacheLog(const dtLogCategory category, const char* format, ...)
+{
+	if (s_tileCacheLogFunc == 0)
+		return;
+
+	static const int MSG_SIZE = 512;
+	char msg[MSG_SIZE];
+	va_list argList;
+	va_start(argList, format);
+	int len = vsnprintf(msg, MSG_SIZE, format, argList);
+	va_end(argList);
+	if (len < 0)
+		return;
+	if (len >= MSG_SIZE)
+		len = MSG_SIZE - 1;
+	s_tileCacheLogFunc(category, msg, len);
+}
 
 dtTileCacheAlloc::~dtTileCacheAlloc()
 {
@@ -113,7 +140,9 @@ struct dtLayerSweepSpan
 	unsigned char nei;	// neighbour id
 };
 
-static const int DT_LAYER_MAX_NEIS = 16;
+// Was 16, and addUniqueLast() didn't check it: a region with more neighbour entries wrote past `neis` into `nneis`
+// (and from there anywhere in this or the following regions), corrupting the data used to merge regions.
+static const int DT_LAYER_MAX_NEIS = 64;
 
 struct dtLayerMonotoneRegion
 {
@@ -122,6 +151,7 @@ struct dtLayerMonotoneRegion
 	unsigned char nneis;
 	unsigned char regId;
 	unsigned char areaId;
+	unsigned char neisOverflow;	// Set when `neis` ran out of space. The list is then incomplete, so canMerge() won't merge this region into another.
 };
 
 struct dtTempContour
@@ -149,12 +179,16 @@ inline bool overlapRangeExl(const unsigned short amin, const unsigned short amax
 	return (amin >= bmax || amax <= bmin) ? false : true;
 }
 
-static void addUniqueLast(unsigned char* a, unsigned char& an, unsigned char v)
+// Adds a contact with neighbour region `v`. The neighbour pass in dtBuildTileCacheRegions() calls this once per contact,
+// so canMerge() can tell a single contact from several.
+static void addNeighbour(dtLayerMonotoneRegion& reg, unsigned char v)
 {
-	const int n = (int)an;
-	if (n > 0 && a[n-1] == v) return;
-	a[an] = v;
-	an++;
+	if (reg.nneis >= DT_LAYER_MAX_NEIS)
+	{
+		reg.neisOverflow = 1;
+		return;
+	}
+	reg.neis[reg.nneis++] = v;
 }
 
 inline bool isConnected(const dtTileCacheLayer& layer,
@@ -165,6 +199,9 @@ inline bool isConnected(const dtTileCacheLayer& layer,
 	return true;
 }
 
+// Two hole-free regions joined along exactly one contact stay hole-free. Joined along two or more they enclose
+// whatever lies between the contacts, and since only the outer contour of a region is traced, its polys would then
+// cover (and overlap) that enclosed area. So only merge when there is exactly one contact.
 static bool canMerge(unsigned char oldRegId, unsigned char newRegId, const dtLayerMonotoneRegion* regs, const int nregs)
 {
 	int count = 0;
@@ -172,6 +209,8 @@ static bool canMerge(unsigned char oldRegId, unsigned char newRegId, const dtLay
 	{
 		const dtLayerMonotoneRegion& reg = regs[i];
 		if (reg.regId != oldRegId) continue;
+		// Incomplete neighbour list, so the contacts can't be counted.
+		if (reg.neisOverflow) return false;
 		const int nnei = (int)reg.nneis;
 		for (int j = 0; j < nnei; ++j)
 		{
@@ -301,31 +340,52 @@ dtStatus dtBuildTileCacheRegions(dtTileCacheAlloc* alloc,
 		regs[i].regId = 0xff;
 	
 	// Find region neighbours.
+	// Regions of the same area are only ever adjacent across rows (within a row, connected cells share a sweep), so
+	// every contact is a run of cells along a row. Record each run once. Upstream only skipped an entry equal to the
+	// previous one in the list, which could collapse separate contacts into one, so canMerge() could merge regions
+	// into one that encloses a hole.
 	for (int y = 0; y < h; ++y)
 	{
+		unsigned char runRi = 0xff;
+		unsigned char runRai = 0xff;
 		for (int x = 0; x < w; ++x)
 		{
 			const int idx = x+y*w;
 			const unsigned char ri = layer.regs[idx];
-			if (ri == 0xff)
-				continue;
-			
-			// Update area.
-			regs[ri].area++;
-			regs[ri].areaId = layer.areas[idx];
-			
-			// Update neighbours
-			const int ymi = x+(y-1)*w;
-			if (y > 0 && isConnected(layer, idx, ymi, walkableClimb))
+			unsigned char contactRai = 0xff;
+			if (ri != 0xff)
 			{
-				const unsigned char rai = layer.regs[ymi];
-				if (rai != 0xff && rai != ri)
+				// Update area.
+				regs[ri].area++;
+				regs[ri].areaId = layer.areas[idx];
+
+				// Update neighbours
+				const int ymi = x+(y-1)*w;
+				if (y > 0 && isConnected(layer, idx, ymi, walkableClimb))
 				{
-					addUniqueLast(regs[ri].neis, regs[ri].nneis, rai);
-					addUniqueLast(regs[rai].neis, regs[rai].nneis, ri);
+					const unsigned char rai = layer.regs[ymi];
+					if (rai != 0xff && rai != ri)
+						contactRai = rai;
 				}
 			}
+
+			if (contactRai != 0xff && (ri != runRi || contactRai != runRai))
+			{
+				addNeighbour(regs[ri], contactRai);
+				addNeighbour(regs[contactRai], ri);
+			}
+			runRi = contactRai != 0xff ? ri : 0xff;
+			runRai = contactRai;
 		}
+	}
+
+	int overflowedRegions = 0;
+	for (int i = 0; i < nregs; ++i)
+		overflowedRegions += regs[i].neisOverflow;
+	if (overflowedRegions > 0)
+	{
+		dtTileCacheLog(DT_LOG_WARNING, "dtBuildTileCacheRegions (%d, %d, layer %d): %d of %d regions had more than %d neighbour contacts, so they won't be merged into other regions",
+					   (int)layer.header->tx, (int)layer.header->ty, (int)layer.header->tlayer, overflowedRegions, nregs, DT_LAYER_MAX_NEIS);
 	}
 	
 	for (int i = 0; i < nregs; ++i)
@@ -615,12 +675,12 @@ static void simplifyContour(dtTempContour& cont, const float maxError)
 		int ii = (i+1) % cont.npoly;
 		
 		const int ai = (int)cont.poly[i];
-		const int ax = (int)cont.verts[ai*4+0];
-		const int az = (int)cont.verts[ai*4+2];
-		
+		int ax = (int)cont.verts[ai*4+0];
+		int az = (int)cont.verts[ai*4+2];
+
 		const int bi = (int)cont.poly[ii];
-		const int bx = (int)cont.verts[bi*4+0];
-		const int bz = (int)cont.verts[bi*4+2];
+		int bx = (int)cont.verts[bi*4+0];
+		int bz = (int)cont.verts[bi*4+2];
 		
 		// Find maximum deviation from the segment.
 		float maxd = 0;
@@ -641,6 +701,12 @@ static void simplifyContour(dtTempContour& cont, const float maxError)
 			cinc = cont.nverts-1;
 			ci = (bi+cinc) % cont.nverts;
 			endi = ai;
+			// Also measure against the segment in lexicographic order, as Recast's simplifyContour() does.
+			// Without the swap the two contours sharing this edge measured against opposite segment directions, so
+			// equally distant points (common on 45 degree staircase edges) were tie-broken differently by float
+			// rounding, the shared edge was simplified differently on each side, and the regions' polys overlapped.
+			dtSwap(ax, bx);
+			dtSwap(az, bz);
 		}
 		
 		// Tessellate only outer edges or edges between areas.
@@ -691,6 +757,15 @@ static void simplifyContour(dtTempContour& cont, const float maxError)
 	}
 }
 
+// Returns the height of the contour vertex at corner (x, z), where y is the height of the cell the contour was walked from.
+//
+// The original version took the max height of the corner cells within walkableClimb of y. Two contours that share a
+// corner walk it from different cells, so on steep slopes running diagonally to the grid (where the two diagonal cells
+// are more than walkableClimb apart) they included different cells and got different heights. addVertex() then didn't
+// merge the vertices, buildMeshAdjacency() didn't find the shared edge, and the neighbouring polys were not linked.
+//
+// Instead, use the group of corner cells connected to the walking cell. Every contour sharing the corner sees the same
+// group, so they agree on the height, while cells on the other side of a ledge (not connected) are still excluded.
 static unsigned char getCornerHeight(dtTileCacheLayer& layer,
 									 const int x, const int y, const int z,
 									 const int walkableClimb,
@@ -698,37 +773,76 @@ static unsigned char getCornerHeight(dtTileCacheLayer& layer,
 {
 	const int w = (int)layer.header->width;
 	const int h = (int)layer.header->height;
-	
+
+	// Corner cells: 0 = (-1,-1), 1 = (0,-1), 2 = (-1,0), 3 = (0,0).
+	int cellIdx[4];
+	bool cellValid[4];
+	bool inGroup[4];
+	bool anyInGroup = false;
+	for (int i = 0; i < 4; ++i)
+	{
+		const int px = x + (i & 1) - 1;
+		const int pz = z + (i >> 1) - 1;
+		cellValid[i] = px >= 0 && pz >= 0 && px < w && pz < h;
+		cellIdx[i] = cellValid[i] ? px + pz*w : 0;
+		if (cellValid[i] && layer.areas[cellIdx[i]] == DT_TILECACHE_NULL_AREA)
+			cellValid[i] = false;
+
+		const int lh = cellValid[i] ? (int)layer.heights[cellIdx[i]] : 0;
+
+		// Seed the group with the corner cells at height y, one of which is the walking cell.
+		inGroup[i] = cellValid[i] && lh == y;
+		anyInGroup |= inGroup[i];
+	}
+
+	if (anyInGroup)
+	{
+		// Grow the group through connected edge neighbours inside the 2x2 block: (cell a, cell b, direction from a to b).
+		static const int edges[4][3] = { { 0, 1, 2 }, { 0, 2, 1 }, { 1, 3, 1 }, { 2, 3, 2 } };
+		for (bool changed = true; changed; )
+		{
+			changed = false;
+			for (int e = 0; e < 4; ++e)
+			{
+				const int a = edges[e][0];
+				const int b = edges[e][1];
+				if (!cellValid[a] || !cellValid[b] || inGroup[a] == inGroup[b])
+					continue;
+				if ((layer.cons[cellIdx[a]] & 0xf & (1 << edges[e][2])) == 0)
+					continue;
+				inGroup[a] = inGroup[b] = true;
+				changed = true;
+			}
+		}
+	}
+	else
+	{
+		// Shouldn't happen, but fall back to the original height filter.
+		for (int i = 0; i < 4; ++i)
+			inGroup[i] = cellValid[i] && dtAbs((int)layer.heights[cellIdx[i]] - y) <= walkableClimb;
+	}
+
 	int n = 0;
-	
+
 	unsigned char portal = 0xf;
 	unsigned char height = 0;
 	unsigned char preg = 0xff;
 	bool allSameReg = true;
-	
-	for (int dz = -1; dz <= 0; ++dz)
+
+	for (int i = 0; i < 4; ++i)
 	{
-		for (int dx = -1; dx <= 0; ++dx)
-		{
-			const int px = x+dx;
-			const int pz = z+dz;
-			if (px >= 0 && pz >= 0 && px < w && pz < h)
-			{
-				const int idx  = px + pz*w;
-				const int lh = (int)layer.heights[idx];
-				if (dtAbs(lh-y) <= walkableClimb && layer.areas[idx] != DT_TILECACHE_NULL_AREA)
-				{
-					height = dtMax(height, (unsigned char)lh);
-					portal &= (layer.cons[idx] >> 4);
-					if (preg != 0xff && preg != layer.regs[idx])
-						allSameReg = false;
-					preg = layer.regs[idx]; 
-					n++;
-				}
-			}
-		}
+		if (!inGroup[i])
+			continue;
+
+		const int idx = cellIdx[i];
+		height = dtMax(height, layer.heights[idx]);
+		portal &= (layer.cons[idx] >> 4);
+		if (preg != 0xff && preg != layer.regs[idx])
+			allSameReg = false;
+		preg = layer.regs[idx];
+		n++;
 	}
-	
+
 	int portalCount = 0;
 	for (int dir = 0; dir < 4; ++dir)
 		if (portal & (1<<dir))
@@ -1725,10 +1839,14 @@ static dtStatus removeVertex(dtTileCachePolyMesh& mesh, const unsigned short rem
 
 dtStatus dtBuildTileCachePolyMesh(dtTileCacheAlloc* alloc,
 								  dtTileCacheContourSet& lcset,
-								  dtTileCachePolyMesh& mesh)
+								  dtTileCachePolyMesh& mesh,
+								  int* failedTriangulations)
 {
 	dtAssert(alloc);
-	
+
+	if (failedTriangulations)
+		*failedTriangulations = 0;
+
 	int maxVertices = 0;
 	int maxTris = 0;
 	int maxVertsPerCont = 0;
@@ -1812,10 +1930,12 @@ dtStatus dtBuildTileCachePolyMesh(dtTileCacheAlloc* alloc,
 		int ntris = triangulate(cont.nverts, cont.verts, &indices[0], &tris[0]);
 		if (ntris <= 0)
 		{
-			// TODO: issue warning!
+			// Part of the contour gets no polygons. Reported to the caller, which knows the tile coordinates.
+			if (failedTriangulations)
+				++*failedTriangulations;
 			ntris = -ntris;
 		}
-		
+
 		// Add and merge vertices.
 		for (int j = 0; j < cont.nverts; ++j)
 		{
