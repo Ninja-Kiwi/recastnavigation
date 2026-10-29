@@ -140,6 +140,8 @@ static bool addSpan(rcHeightfield& heightfield,
 		else
 		{
 			// The new span overlaps with an existing span.  Merge them.
+			// Remember the new span's top before merging, so the area is chosen from the original tops.
+			const unsigned short newSpanTop = newSpan->smax;
 			if (currentSpan->smin < newSpan->smin)
 			{
 				newSpan->smin = currentSpan->smin;
@@ -148,13 +150,22 @@ static bool addSpan(rcHeightfield& heightfield,
 			{
 				newSpan->smax = currentSpan->smax;
 			}
-			
-			// Merge flags.
-			if (rcAbs((int)newSpan->smax - (int)currentSpan->smax) <= flagMergeThreshold)
+
+			// Merge flags. The merged span's area comes from whichever span forms its top surface.
+			// Upstream compared against the already merged smax, so when the existing span was higher the new (lower)
+			// span's area was still included in the rcMax. That made the result depend on rasterization order: e.g. a
+			// walkable floor rasterized after an overlapping rock made the rock's top walkable.
+			if (rcAbs((int)newSpanTop - (int)currentSpan->smax) <= flagMergeThreshold)
 			{
-				// Higher area ID numbers indicate higher resolution priority.
+				// Tops are close enough to be the same surface. Higher area ID numbers indicate higher resolution priority.
 				newSpan->area = rcMax(newSpan->area, currentSpan->area);
 			}
+			else if (currentSpan->smax > newSpanTop)
+			{
+				// The existing span's top is above the new span's top, so it forms the surface.
+				newSpan->area = currentSpan->area;
+			}
+			// Otherwise the new span's top is higher and keeps its own area.
 			
 			// Remove the current span since it's now merged with newSpan.
 			// Keep going because there might be other overlapping spans that also need to be merged.

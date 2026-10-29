@@ -398,7 +398,11 @@ void dtNavMesh::unconnectLinks(dtMeshTile* tile, dtMeshTile* target)
 void dtNavMesh::connectExtLinks(dtMeshTile* tile, dtMeshTile* target, int side)
 {
 	if (!tile) return;
-	
+
+	// Links found, and links that could not be created because the tile's link pool (header->maxLinkCount) ran out.
+	int requestedLinks = 0;
+	int droppedLinks = 0;
+
 	// Connect border links.
 	for (int i = 0; i < tile->header->polyCount; ++i)
 	{
@@ -424,9 +428,12 @@ void dtNavMesh::connectExtLinks(dtMeshTile* tile, dtMeshTile* target, int side)
 			dtPolyRef nei[DT_POLYS_PER_EXT_CONNECTION];
 			float neia[DT_POLYS_PER_EXT_CONNECTION*2];
 			int nnei = findConnectingPolys(va,vb, target, dtOppositeTile(dir), nei, neia, DT_POLYS_PER_EXT_CONNECTION);
+			requestedLinks += nnei;
 			for (int k = 0; k < nnei; ++k)
 			{
 				unsigned int idx = allocLink(tile);
+				if (idx == DT_NULL_LINK)
+					++droppedLinks;
 				if (idx != DT_NULL_LINK)
 				{
 					dtLink* link = &tile->links[idx];
@@ -460,6 +467,14 @@ void dtNavMesh::connectExtLinks(dtMeshTile* tile, dtMeshTile* target, int side)
 			}
 		}
 	}
+
+	if (droppedLinks > 0)
+	{
+		log(DT_LOG_ERROR, "connectExtLinks: tile (%d, %d, layer %d) ran out of links connecting to tile (%d, %d, layer %d), side %d: dropped %d of %d external links (maxLinkCount %d, %d polys)",
+			tile->header->x, tile->header->y, tile->header->layer,
+			target->header->x, target->header->y, target->header->layer, side,
+			droppedLinks, requestedLinks, tile->header->maxLinkCount, tile->header->polyCount);
+	}
 }
 
 void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int side)
@@ -469,7 +484,11 @@ void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int
 	// Connect off-mesh links.
 	// We are interested on links which land from target tile to this tile.
 	const unsigned char oppositeSide = (side == -1) ? 0xff : (unsigned char)dtOppositeTile(side);
-	
+
+	// Links that could not be created because a tile's link pool (header->maxLinkCount) ran out.
+	int droppedTargetLinks = 0;
+	int droppedTileLinks = 0;
+
 	for (int i = 0; i < target->header->offMeshConCount; ++i)
 	{
 		dtOffMeshConnection* targetCon = &target->offMeshCons[i];
@@ -498,6 +517,8 @@ void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int
 				
 		// Link off-mesh connection to target poly.
 		unsigned int idx = allocLink(target);
+		if (idx == DT_NULL_LINK)
+			++droppedTargetLinks;
 		if (idx != DT_NULL_LINK)
 		{
 			dtLink* link = &target->links[idx];
@@ -514,6 +535,8 @@ void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int
 		if (targetCon->flags & DT_OFFMESH_CON_BIDIR)
 		{
 			unsigned int tidx = allocLink(tile);
+			if (tidx == DT_NULL_LINK)
+				++droppedTileLinks;
 			if (tidx != DT_NULL_LINK)
 			{
 				const unsigned short landPolyIdx = (unsigned short)decodePolyIdPoly(ref);
@@ -530,6 +553,20 @@ void dtNavMesh::connectExtOffMeshLinks(dtMeshTile* tile, dtMeshTile* target, int
 		}
 	}
 
+	if (droppedTargetLinks > 0)
+	{
+		log(DT_LOG_ERROR, "connectExtOffMeshLinks: tile (%d, %d, layer %d) ran out of links for off-mesh connections landing in tile (%d, %d, layer %d): dropped %d (maxLinkCount %d)",
+			target->header->x, target->header->y, target->header->layer,
+			tile->header->x, tile->header->y, tile->header->layer,
+			droppedTargetLinks, target->header->maxLinkCount);
+	}
+	if (droppedTileLinks > 0)
+	{
+		log(DT_LOG_ERROR, "connectExtOffMeshLinks: tile (%d, %d, layer %d) ran out of links back to off-mesh connections from tile (%d, %d, layer %d): dropped %d (maxLinkCount %d)",
+			tile->header->x, tile->header->y, tile->header->layer,
+			target->header->x, target->header->y, target->header->layer,
+			droppedTileLinks, tile->header->maxLinkCount);
+	}
 }
 
 void dtNavMesh::connectIntLinks(dtMeshTile* tile)
@@ -537,6 +574,9 @@ void dtNavMesh::connectIntLinks(dtMeshTile* tile)
 	if (!tile) return;
 
 	dtPolyRef base = getPolyRefBase(tile);
+
+	// Links that could not be created because the tile's link pool (header->maxLinkCount) ran out.
+	int droppedLinks = 0;
 
 	for (int i = 0; i < tile->header->polyCount; ++i)
 	{
@@ -554,6 +594,8 @@ void dtNavMesh::connectIntLinks(dtMeshTile* tile)
 			if (poly->neis[j] == 0 || (poly->neis[j] & DT_EXT_LINK)) continue;
 
 			unsigned int idx = allocLink(tile);
+			if (idx == DT_NULL_LINK)
+				++droppedLinks;
 			if (idx != DT_NULL_LINK)
 			{
 				dtLink* link = &tile->links[idx];
@@ -567,6 +609,13 @@ void dtNavMesh::connectIntLinks(dtMeshTile* tile)
 			}
 		}			
 	}
+
+	if (droppedLinks > 0)
+	{
+		log(DT_LOG_ERROR, "connectIntLinks: tile (%d, %d, layer %d) ran out of links: dropped %d internal links (maxLinkCount %d, %d polys)",
+			tile->header->x, tile->header->y, tile->header->layer,
+			droppedLinks, tile->header->maxLinkCount, tile->header->polyCount);
+	}
 }
 
 void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
@@ -574,7 +623,10 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 	if (!tile) return;
 	
 	dtPolyRef base = getPolyRefBase(tile);
-	
+
+	// Links that could not be created because the tile's link pool (header->maxLinkCount) ran out.
+	int droppedLinks = 0;
+
 	// Base off-mesh connection start points.
 	for (int i = 0; i < tile->header->offMeshConCount; ++i)
 	{
@@ -597,6 +649,8 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 
 		// Link off-mesh connection to target poly.
 		unsigned int idx = allocLink(tile);
+		if (idx == DT_NULL_LINK)
+			++droppedLinks;
 		if (idx != DT_NULL_LINK)
 		{
 			dtLink* link = &tile->links[idx];
@@ -611,6 +665,8 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 
 		// Start end-point is always connect back to off-mesh connection. 
 		unsigned int tidx = allocLink(tile);
+		if (tidx == DT_NULL_LINK)
+			++droppedLinks;
 		if (tidx != DT_NULL_LINK)
 		{
 			const unsigned short landPolyIdx = (unsigned short)decodePolyIdPoly(ref);
@@ -624,6 +680,13 @@ void dtNavMesh::baseOffMeshLinks(dtMeshTile* tile)
 			link->next = landPoly->firstLink;
 			landPoly->firstLink = tidx;
 		}
+	}
+
+	if (droppedLinks > 0)
+	{
+		log(DT_LOG_ERROR, "baseOffMeshLinks: tile (%d, %d, layer %d) ran out of links: dropped %d off-mesh connection links (maxLinkCount %d)",
+			tile->header->x, tile->header->y, tile->header->layer,
+			droppedLinks, tile->header->maxLinkCount);
 	}
 }
 
