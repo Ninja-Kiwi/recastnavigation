@@ -781,7 +781,7 @@ dtStatus dtTileCache::buildNavMeshTile(const dtCompressedTileRef ref, dtNavMesh*
 	status = dtBuildTileCacheRegions(m_talloc, *bc.layer, walkableClimbVx);
 	if (dtStatusFailed(status))
 	{
-		dtTileCacheLog(DT_LOG_ERROR, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCacheRegions failed (status 0x%x%s), navmesh tile not built (any previous one is kept)",
+		dtTileCacheLog(DT_LOG_WARNING, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCacheRegions failed (status 0x%x%s), navmesh tile not built (any previous one is kept)",
 					   tx, ty, tlayer, status, dtStatusDetail(status, DT_BUFFER_TOO_SMALL) ? ", more than 255 regions" : "");
 		return status;
 	}
@@ -793,7 +793,7 @@ dtStatus dtTileCache::buildNavMeshTile(const dtCompressedTileRef ref, dtNavMesh*
 									  m_params.maxSimplificationError, *bc.lcset);
 	if (dtStatusFailed(status))
 	{
-		dtTileCacheLog(DT_LOG_ERROR, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCacheContours failed (status 0x%x%s), navmesh tile not built (any previous one is kept)",
+		dtTileCacheLog(DT_LOG_WARNING, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCacheContours failed (status 0x%x%s), navmesh tile not built (any previous one is kept)",
 					   tx, ty, tlayer, status, dtStatusDetail(status, DT_BUFFER_TOO_SMALL) ? ", contour too complex" : "");
 		return status;
 	}
@@ -805,7 +805,7 @@ dtStatus dtTileCache::buildNavMeshTile(const dtCompressedTileRef ref, dtNavMesh*
 	status = dtBuildTileCachePolyMesh(m_talloc, *bc.lcset, *bc.lmesh, &failedTriangulations);
 	if (dtStatusFailed(status))
 	{
-		dtTileCacheLog(DT_LOG_ERROR, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCachePolyMesh failed (status 0x%x), navmesh tile not built (any previous one is kept)",
+		dtTileCacheLog(DT_LOG_WARNING, "buildNavMeshTile (%d, %d, layer %d): dtBuildTileCachePolyMesh failed (status 0x%x), navmesh tile not built (any previous one is kept)",
 					   tx, ty, tlayer, status);
 		return status;
 	}
@@ -853,7 +853,7 @@ dtStatus dtTileCache::buildNavMeshTile(const dtCompressedTileRef ref, dtNavMesh*
 	int navDataSize = 0;
 	if (!dtCreateNavMeshData(&params, &navData, &navDataSize))
 	{
-		dtTileCacheLog(DT_LOG_ERROR, "buildNavMeshTile (%d, %d, layer %d): dtCreateNavMeshData failed (%d verts, %d polys), navmesh tile not built (any previous one is kept)",
+		dtTileCacheLog(DT_LOG_WARNING, "buildNavMeshTile (%d, %d, layer %d): dtCreateNavMeshData failed (%d verts, %d polys), navmesh tile not built (any previous one is kept)",
 					   tx, ty, tlayer, params.vertCount, params.polyCount);
 		return DT_FAILURE;
 	}
@@ -868,7 +868,7 @@ dtStatus dtTileCache::buildNavMeshTile(const dtCompressedTileRef ref, dtNavMesh*
 		status = navmesh->addTile(navData,navDataSize,DT_TILE_FREE_DATA,0,0);
 		if (dtStatusFailed(status))
 		{
-			dtTileCacheLog(DT_LOG_ERROR, "buildNavMeshTile (%d, %d, layer %d): dtNavMesh::addTile failed (status 0x%x), the previous navmesh tile was already removed so this layer has none",
+			dtTileCacheLog(DT_LOG_WARNING, "buildNavMeshTile (%d, %d, layer %d): dtNavMesh::addTile failed (status 0x%x), the previous navmesh tile was already removed so this layer has none",
 						   tx, ty, tlayer, status);
 			dtFree(navData);
 			return status;
