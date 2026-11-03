@@ -100,6 +100,8 @@ struct dtCrowdAgentParams
 	unsigned char agentGroupFlags;
 	unsigned char ignoreGroupFlags;
 
+	bool ignoreNeighbours;
+
 	/// Defines the distance corner verts should be moved away from the corner
 	float cornerVertsWidening;
 

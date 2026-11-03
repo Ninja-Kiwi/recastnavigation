@@ -1170,12 +1170,20 @@ void dtCrowd::update(const float dt, dtCrowdAgentDebugInfo* debug)
 			ag->boundary.update(ag->corridor.getFirstPoly(), ag->npos, ag->params.collisionQueryRange,
 								m_navquery, &m_filters[ag->params.queryFilterType]);
 		}
+
 		// Query neighbour agents
-		ag->nneis = getNeighbours(ag->npos, ag->params.height, ag->params.collisionQueryRange,
-								  ag, ag->neis, DT_CROWDAGENT_MAX_NEIGHBOURS,
-								  agents, nagents, m_grid);
-		for (int j = 0; j < ag->nneis; j++)
-			ag->neis[j].idx = getAgentIndex(agents[ag->neis[j].idx]);
+		if (ag->params.ignoreNeighbours)
+		{
+			ag->nneis = 0;
+		}
+		else
+		{
+			ag->nneis = getNeighbours(ag->npos, ag->params.height, ag->params.collisionQueryRange,
+									  ag, ag->neis, DT_CROWDAGENT_MAX_NEIGHBOURS,
+									  agents, nagents, m_grid);
+			for (int j = 0; j < ag->nneis; j++)
+				ag->neis[j].idx = getAgentIndex(agents[ag->neis[j].idx]);
+		}
 	}
 	
 	// Find next corner to steer to.

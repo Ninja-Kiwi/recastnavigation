@@ -21,6 +21,7 @@
 
 #include "DetourAlloc.h"
 #include "DetourStatus.h"
+#include "DetourNavMesh.h" // dtLogCategory
 
 static const int DT_TILECACHE_MAGIC = 'D'<<24 | 'T'<<16 | 'L'<<8 | 'R'; ///< 'DTLR';
 static const int DT_TILECACHE_VERSION = 1;
@@ -145,9 +146,18 @@ dtStatus dtBuildTileCacheContours(dtTileCacheAlloc* alloc,
 								  const int walkableClimb, 	const float maxError,
 								  dtTileCacheContourSet& lcset);
 
+///  @param[out]	failedTriangulations	Optional. Number of contours that could not be fully triangulated.
+///										Part of each such contour gets no polygons.
 dtStatus dtBuildTileCachePolyMesh(dtTileCacheAlloc* alloc,
 								  dtTileCacheContourSet& lcset,
-								  dtTileCachePolyMesh& mesh);
+								  dtTileCachePolyMesh& mesh,
+								  int* failedTriangulations = 0);
+
+/// Sets the callback used to report tile cache build problems. Pass 0 to disable logging.
+void dtTileCacheSetLogFunc(void (*func)(const dtLogCategory, const char*, int));
+
+/// Reports a tile cache build problem through the callback set by #dtTileCacheSetLogFunc.
+void dtTileCacheLog(const dtLogCategory category, const char* format, ...);
 
 /// Swaps the endianness of the compressed tile data's header (#dtTileCacheLayerHeader).
 /// Tile layer data does not need endian swapping as it consist only of bytes.
