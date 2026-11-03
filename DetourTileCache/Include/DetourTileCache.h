@@ -154,7 +154,9 @@ public:
 	///  @param[out]	upToDate	Whether the tile cache is fully up to date with obstacle requests and tile rebuilds.
 	///  							If the tile cache is up to date another (immediate) call to update will have no effect;
 	///  							otherwise another call will continue processing obstacle requests and tile rebuilds.
-	dtStatus update(const float dt, class dtNavMesh* navmesh, bool* upToDate = 0);
+	///  @param[out]	tileRebuilt	Whether a navmesh tile was rebuilt. Rebuilding gives the tile's polys new refs, so any path
+	///  							through it holds invalid refs.
+	dtStatus update(const float dt, class dtNavMesh* navmesh, bool* upToDate = 0, bool* tileRebuilt = 0);
 	
 	dtStatus buildNavMeshTilesAt(const int tx, const int ty, class dtNavMesh* navmesh);
 	

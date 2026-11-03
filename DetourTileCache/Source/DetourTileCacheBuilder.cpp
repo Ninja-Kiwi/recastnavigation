@@ -384,8 +384,10 @@ dtStatus dtBuildTileCacheRegions(dtTileCacheAlloc* alloc,
 		overflowedRegions += regs[i].neisOverflow;
 	if (overflowedRegions > 0)
 	{
-		dtTileCacheLog(DT_LOG_WARNING, "dtBuildTileCacheRegions (%d, %d, layer %d): %d of %d regions had more than %d neighbour contacts, so they won't be merged into other regions",
-					   (int)layer.header->tx, (int)layer.header->ty, (int)layer.header->tlayer, overflowedRegions, nregs, DT_LAYER_MAX_NEIS);
+		dtTileCacheLog(DT_LOG_WARNING, "dtBuildTileCacheRegions (%d, %d, layer %d) world tile-centre (%.1f, %.1f): %d of %d regions had more than %d neighbour contacts, so they won't be merged into other regions",
+					   (int)layer.header->tx, (int)layer.header->ty, (int)layer.header->tlayer,
+					   (layer.header->bmin[0] + layer.header->bmax[0]) * 0.5f, (layer.header->bmin[2] + layer.header->bmax[2]) * 0.5f,
+					   overflowedRegions, nregs, DT_LAYER_MAX_NEIS);
 	}
 	
 	for (int i = 0; i < nregs; ++i)
@@ -876,7 +878,9 @@ dtStatus dtBuildTileCacheContours(dtTileCacheAlloc* alloc,
 	memset(lcset.conts, 0, sizeof(dtTileCacheContour)*lcset.nconts);
 	
 	// Allocate temp buffer for contour tracing.
-	const int maxTempVerts = (w+h)*2 * 2; // Twice around the layer.
+	// Sized for every grid corner twice, rather than upstream's (w+h)*2*2 ("twice around the layer"). Diagonal and ragged
+	// region edges add a vertex at every cell step, which overflowed the upstream size and left whole tiles unbuilt.
+	const int maxTempVerts = (w+1)*(h+1)*2;
 	
 	dtFixedArray<unsigned char> tempVerts(alloc, maxTempVerts*4);
 	if (!tempVerts)
